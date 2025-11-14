@@ -65,22 +65,17 @@ Todo o controle de mudanças é gerenciado pelo GitHub:
 ## 📂 Estrutura do Repositório
 
 A estrutura de diretórios do projeto está organizada da seguinte forma:
-projeto-imc/ ├── src/ │ ├── frontend/
-
+projeto-imc/ 
+├── src/ │ 
+├── frontend/
 │ ├── backend/
-
 │ └── database/
-
-├── docs/ │ ├── requisitos/
-
+├── docs/ │ 
+├── requisitos/
 │ ├── tecnicos/
-
 │ └── manuais/
-
 ├── tests/
-
 └── config/
-
 
 ## 👥 Equipe
 
