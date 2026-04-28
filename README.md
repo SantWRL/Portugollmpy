@@ -1,5 +1,4 @@
 
-```
 # 🌿 Tupi-Logic: Tradutor e Interpretador Neural de Portugol
 
 Este projeto é uma **Prova de Conceito (PoC)** de uma Inteligência Artificial desenvolvida do zero em Python e PyTorch. O sistema é capaz de entender comandos em Linguagem Natural (Português), traduzi-los para uma sintaxe estruturada (Portugol) utilizando uma Rede Neural Recorrente (Seq2Seq), e em seguida, executar o código gerado em tempo real através de um interpretador local.
