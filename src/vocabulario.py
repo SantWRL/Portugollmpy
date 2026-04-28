@@ -29,5 +29,3 @@ class Vocabulario:
 
     def __len__(self):
         return len(self.stoi)
-
-print(">>> O arquivo vocabulario.py foi lido com sucesso!")

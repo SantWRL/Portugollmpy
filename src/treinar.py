@@ -2,6 +2,7 @@ import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import os
 from vocabulario import Vocabulario
 from modelo import Codificador, Decodificador, TupiLogicSeq2Seq
 
@@ -36,17 +37,13 @@ def treinar():
     fonte_tensores = torch.tensor(preencher_lote(pt_codificado, vocab_pt.stoi["<PAD>"]))
     alvo_tensores = torch.tensor(preencher_lote(portugol_codificado, vocab_portugol.stoi["<PAD>"]))
 
-    # AUMENTAMOS PARA 500 ÉPOCAS PARA ELA MEMORIZAR BEM
     epocas = 500 
     print("Iniciando treinamento da Mente...")
     for epoca in range(epocas):
         otimizador.zero_grad()
-        
         saida = modelo(fonte_tensores, alvo_tensores)
-        
         saida_dim = saida.shape[-1]
         
-        # AQUI ESTAVA O BUG! Agora fatiamos a dimensão certa (as palavras) [:, 1:]
         saida_achatada = saida[:, 1:].reshape(-1, saida_dim)
         alvo_achatado = alvo_tensores[:, 1:].reshape(-1)
         
@@ -58,6 +55,7 @@ def treinar():
             print(f"Época [{epoca+1}/{epocas}], Erro: {perda.item():.4f}")
 
     print("Salvando o modelo...")
+    os.makedirs("../modelos_salvos", exist_ok=True)
     torch.save({
         'modelo_state_dict': modelo.state_dict(),
         'vocab_pt_stoi': vocab_pt.stoi,

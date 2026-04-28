@@ -1,0 +1,23 @@
+# Python - Arquivos de compilação
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ambientes Virtuais (Caso você crie um futuramente)
+venv/
+env/
+.env
+
+# Inteligência Artificial e Datasets
+# Ignoramos os modelos salvos pois podem ser muito grandes para o Git
+# e o dataset que é gerado dinamicamente por script
+modelos_salvos/*.pth
+dataset/dados.json
+
+# Sistema Operacional
+.DS_Store
+Thumbs.db
+
+# VS Code / Editores
+.vscode/
+.idea/
