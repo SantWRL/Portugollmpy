@@ -1,0 +1,9 @@
+[
+    {"pt": "escreva ola mundo", "portugol": "escreva ( 'ola mundo' )"},
+    {"pt": "mostre o numero cinco", "portugol": "escreva ( 5 )"},
+    {"pt": "crie a variavel x como 10", "portugol": "inteiro x = 10"},
+    {"pt": "crie a variavel y como 20", "portugol": "inteiro y = 20"},
+    {"pt": "some x com y", "portugol": "x + y"},
+    {"pt": "repita cinco vezes", "portugol": "para i de 1 ate 5 faca"},
+    {"pt": "se x for maior que dez", "portugol": "se ( x > 10 ) entao"}
+  ]
