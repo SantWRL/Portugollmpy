@@ -15,7 +15,7 @@ Este projeto é uma **Prova de Conceito (PoC)** de uma Inteligência Artificial 
 ## 📁 Estrutura do Projeto
 
 ```text
-Portugol2Ruby/
+Portugollmpy/
 │
 ├── dataset/
 │   └── dados.json          # Dataset gerado dinamicamente para o treinamento
