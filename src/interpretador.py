@@ -1,69 +1,143 @@
 import re
+import unicodedata
+
 
 class InterpretadorPortugol:
     def __init__(self):
         self.variaveis = {}
 
+    # ── Helpers ───────────────────────────────────────────────────────────────
+    def _resolver(self, token):
+        if token.lstrip('-').isdigit():
+            return int(token)
+        if token in self.variaveis:
+            return self.variaveis[token]
+        raise KeyError(token)
+
+    def _calcular(self, v1, op, v2):
+        a, b = self._resolver(v1), self._resolver(v2)
+        if   op == '+': return a + b
+        elif op == '-': return a - b
+        elif op == '*': return a * b
+        elif op == '/':
+            if b == 0: raise ZeroDivisionError
+            r = a / b
+            return int(r) if r == int(r) else round(r, 4)
+
+    # ── Execucao ──────────────────────────────────────────────────────────────
     def executar(self, codigo):
         codigo = codigo.strip()
 
-        # Atribuição: inteiro x = 10
-        match_var = re.match(r"inteiro\s+(\w+)\s*=\s*(\d+)", codigo)
-        if match_var:
-            nome = match_var.group(1)
-            valor = int(match_var.group(2))
+        # Declaracao: inteiro x = 10
+        m = re.match(r"inteiro\s+(\w+)\s*=\s*(-?\d+)", codigo)
+        if m:
+            nome, valor = m.group(1), int(m.group(2))
             self.variaveis[nome] = valor
-            print(f"⚙️  [Interpretador]: Variável '{nome}' criada com o valor {valor}.")
+            print(f"[Var] '{nome}' = {valor}")
             return
 
-        # Escreva String: escreva ( 'ola mundo' )
-        match_escreva_str = re.match(r"escreva\s*\(\s*'(.*?)'\s*\)", codigo)
-        if match_escreva_str:
-            texto = match_escreva_str.group(1)
-            print(f"💻 [Terminal]: {texto}")
+        # Escreva string: escreva ( 'texto' )
+        m = re.match(r"escreva\s*\(\s*'(.*?)'\s*\)", codigo)
+        if m:
+            print(f"[Out] {m.group(1)}")
             return
 
-        # Escreva Número/Variável: escreva ( 5 ) ou escreva ( x )
-        match_escreva_num = re.match(r"escreva\s*\(\s*(\w+)\s*\)", codigo)
-        if match_escreva_num:
-            alvo = match_escreva_num.group(1)
-            if alvo.isdigit():
-                print(f"💻 [Terminal]: {alvo}")
-            elif alvo in self.variaveis:
-                print(f"💻 [Terminal]: {self.variaveis[alvo]}")
-            else:
-                print(f"❌ [Erro]: Variável '{alvo}' não existe na memória!")
+        # Escreva numero/variavel: escreva ( x )
+        m = re.match(r"escreva\s*\(\s*(\w+)\s*\)", codigo)
+        if m:
+            alvo = m.group(1)
+            try:
+                print(f"[Out] {self._resolver(alvo)}")
+            except KeyError:
+                print(f"[Erro] Variavel '{alvo}' nao existe.")
             return
 
-        # Soma: x + y
-        match_soma = re.match(r"(\w+)\s*\+\s*(\w+)", codigo)
-        if match_soma:
-            v1, v2 = match_soma.groups()
-            val1 = self.variaveis.get(v1, 0) if not v1.isdigit() else int(v1)
-            val2 = self.variaveis.get(v2, 0) if not v2.isdigit() else int(v2)
-            print(f"⚙️  [Interpretador]: O resultado de {v1} + {v2} é {val1 + val2}")
+        # Leia: leia ( x )
+        m = re.match(r"leia\s*\(\s*(\w+)\s*\)", codigo)
+        if m:
+            nome = m.group(1)
+            try:
+                self.variaveis[nome] = int(input(f"[In] Valor para '{nome}': "))
+                print(f"[Var] '{nome}' = {self.variaveis[nome]}")
+            except ValueError:
+                print("[Erro] Digite um numero inteiro.")
             return
 
-        # Loop: para i de 1 ate X faca
-        match_loop = re.match(r"para i de 1 ate (\d+) faca", codigo)
-        if match_loop:
-            vezes = int(match_loop.group(1))
-            print(f"⚙️  [Interpretador]: Iniciando repetição de {vezes} passos...")
-            for i in range(1, vezes + 1):
-                print(f"   🔄 Execução {i}")
+        # Reatribuicao com expressao: x = y + 5  /  x = x + 1
+        m = re.match(r"(\w+)\s*=\s*(\w+)\s*([+\-*/])\s*(\w+)", codigo)
+        if m:
+            dest, v1, op, v2 = m.group(1), m.group(2), m.group(3), m.group(4)
+            try:
+                resultado = self._calcular(v1, op, v2)
+                self.variaveis[dest] = resultado
+                print(f"[Var] '{dest}' = {resultado}")
+            except KeyError as e:
+                print(f"[Erro] Variavel '{e.args[0]}' nao existe.")
+            except ZeroDivisionError:
+                print("[Erro] Divisao por zero.")
             return
 
-        # Condição: se ( x > 10 ) entao
-        match_se = re.match(r"se\s*\(\s*(\w+)\s*>\s*(\d+)\s*\)\s*entao", codigo)
-        if match_se:
-            var = match_se.group(1)
-            limite = int(match_se.group(2))
-            valor_atual = self.variaveis.get(var, 0)
-            
-            if valor_atual > limite:
-                print(f"⚙️  [Interpretador]: Condição VERDADEIRA ({var} = {valor_atual} > {limite}).")
-            else:
-                print(f"⚙️  [Interpretador]: Condição FALSA ({var} = {valor_atual} NÃO > {limite}).")
+        # Operacao aritmetica simples: x + y
+        m = re.match(r"(\w+)\s*([+\-*/])\s*(\w+)", codigo)
+        if m:
+            v1, op, v2 = m.group(1), m.group(2), m.group(3)
+            ops = {'+': 'soma', '-': 'subtracao', '*': 'multiplicacao', '/': 'divisao'}
+            try:
+                print(f"[Calc] {ops[op]} de {v1} {op} {v2} = {self._calcular(v1, op, v2)}")
+            except KeyError as e:
+                print(f"[Erro] Variavel '{e.args[0]}' nao existe.")
+            except ZeroDivisionError:
+                print("[Erro] Divisao por zero.")
             return
 
-        print(f"⚠️ [Interpretador]: Não sei como executar '{codigo}'.")
+        # Loop para: para i de 1 ate N faca
+        m = re.match(r"para i de 1 ate (\d+) faca", codigo)
+        if m:
+            n = int(m.group(1))
+            print(f"[Loop] Repetindo {n} vezes...")
+            for i in range(1, n + 1):
+                print(f"  -> Execucao {i}")
+            return
+
+        # Loop enquanto: enquanto ( x < 10 ) faca
+        m = re.match(r"enquanto\s*\(\s*(\w+)\s*(>=|<=|!=|==|>|<)\s*(\w+)\s*\)\s*faca", codigo)
+        if m:
+            var, op_str, lim_tok = m.group(1), m.group(2), m.group(3)
+            ops_cond = {
+                '>':  lambda a, b: a > b,  '<':  lambda a, b: a < b,
+                '>=': lambda a, b: a >= b, '<=': lambda a, b: a <= b,
+                '==': lambda a, b: a == b, '!=': lambda a, b: a != b,
+            }
+            try:
+                lim   = self._resolver(lim_tok)
+                val   = self.variaveis.get(var, 0)
+                iters = 0
+                print(f"[Loop] enquanto {var} {op_str} {lim}:")
+                while ops_cond[op_str](val, lim) and iters < 100:
+                    iters += 1
+                    print(f"  -> Iteracao {iters} ({var} = {val})")
+                    val += 1   # incremento padrao para evitar loop infinito
+                if iters == 100:
+                    print("  [Aviso] Limite de 100 iteracoes atingido.")
+            except KeyError as e:
+                print(f"[Erro] Variavel '{e.args[0]}' nao existe.")
+            return
+
+        # Condicionais: se ( x > 10 ) entao
+        ops_cond = {
+            '>=': lambda a, b: a >= b, '<=': lambda a, b: a <= b,
+            '!=': lambda a, b: a != b, '==': lambda a, b: a == b,
+            '>':  lambda a, b: a > b,  '<':  lambda a, b: a < b,
+        }
+        m = re.match(r"se\s*\(\s*(\w+)\s*(>=|<=|!=|==|>|<)\s*(\w+)\s*\)\s*entao", codigo)
+        if m:
+            esq, op_str, dir_ = m.group(1), m.group(2), m.group(3)
+            try:
+                ve, vd = self._resolver(esq), self._resolver(dir_)
+                estado = "VERDADEIRA" if ops_cond[op_str](ve, vd) else "FALSA"
+                print(f"[Cond] {estado}: {esq}={ve} {op_str} {dir_}={vd}")
+            except KeyError as e:
+                print(f"[Erro] Variavel '{e.args[0]}' nao existe.")
+            return
+
+        print(f"[?] Nao sei executar: '{codigo}'")

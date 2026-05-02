@@ -2,68 +2,151 @@ import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import os
+from torch.utils.data import DataLoader, TensorDataset, random_split
+
 from vocabulario import Vocabulario
 from modelo import Codificador, Decodificador, TupiLogicSeq2Seq
+from config import (
+    CAMINHO_DATASET, CAMINHO_MODELO, CAMINHO_MODELO_BEST,
+    TAM_EMBEDDING, TAM_OCULTO, DROPOUT,
+    EPOCAS, LR, BATCH_SIZE, LOG_INTERVALO,
+    MAX_NORM, VAL_SPLIT, PATIENCE
+)
 
-def preencher_lote(sequencias, pad_idx):
-    max_len = max(len(s) for s in sequencias)
-    return [s + [pad_idx] * (max_len - len(s)) for s in sequencias]
+try:
+    from tqdm import tqdm
+    USA_TQDM = True
+except ImportError:
+    USA_TQDM = False
+    print("Instale tqdm: pip install tqdm")
+
+
+def preencher_lote(seqs, pad_idx):
+    max_len = max(len(s) for s in seqs)
+    return [s + [pad_idx] * (max_len - len(s)) for s in seqs]
+
+
+def avaliar(modelo, loader, criterio):
+    """Calcula a perda media no conjunto de validacao (sem teacher forcing)."""
+    modelo.eval()
+    total = 0.0
+    with torch.no_grad():
+        for fonte, alvo in loader:
+            saida = modelo(fonte, alvo, forcar_ensino=0.0)
+            total += criterio(
+                saida[:, 1:].reshape(-1, saida.shape[-1]),
+                alvo[:, 1:].reshape(-1)
+            ).item()
+    return total / len(loader)
+
 
 def treinar():
-    with open("../dataset/dados.json", "r", encoding="utf-8") as f:
+    # ── 1. Dados ──────────────────────────────────────────────────────────────
+    with open(CAMINHO_DATASET, "r", encoding="utf-8") as f:
         dados = json.load(f)
 
-    vocab_pt = Vocabulario()
+    # ── 2. Vocabularios ───────────────────────────────────────────────────────
+    vocab_pt       = Vocabulario()
     vocab_portugol = Vocabulario()
-
     for item in dados:
         vocab_pt.adicionar_frase(item["pt"])
         vocab_portugol.adicionar_frase(item["portugol"])
 
-    TAM_EMBEDDING = 64
-    TAM_OCULTO = 128
-    
-    codificador = Codificador(len(vocab_pt), TAM_EMBEDDING, TAM_OCULTO)
-    decodificador = Decodificador(len(vocab_portugol), TAM_EMBEDDING, TAM_OCULTO)
-    modelo = TupiLogicSeq2Seq(codificador, decodificador)
+    # ── 3. Tensores ───────────────────────────────────────────────────────────
+    fonte_t = torch.tensor(preencher_lote(
+        [vocab_pt.codificar(d["pt"]) for d in dados], vocab_pt.stoi["<PAD>"]))
+    alvo_t  = torch.tensor(preencher_lote(
+        [vocab_portugol.codificar(d["portugol"]) for d in dados], vocab_portugol.stoi["<PAD>"]))
 
-    otimizador = optim.Adam(modelo.parameters(), lr=0.01)
-    criterio = nn.CrossEntropyLoss(ignore_index=vocab_portugol.stoi["<PAD>"])
+    # ── 4. Train / Validation Split (80/20) ───────────────────────────────────
+    dataset = TensorDataset(fonte_t, alvo_t)
+    n_val   = int(len(dataset) * VAL_SPLIT)
+    n_train = len(dataset) - n_val
+    ds_train, ds_val = random_split(dataset, [n_train, n_val],
+                                    generator=torch.Generator().manual_seed(42))
 
-    pt_codificado = [vocab_pt.codificar(item["pt"]) for item in dados]
-    portugol_codificado = [vocab_portugol.codificar(item["portugol"]) for item in dados]
+    loader_train = DataLoader(ds_train, batch_size=BATCH_SIZE, shuffle=True)
+    loader_val   = DataLoader(ds_val,   batch_size=BATCH_SIZE)
 
-    fonte_tensores = torch.tensor(preencher_lote(pt_codificado, vocab_pt.stoi["<PAD>"]))
-    alvo_tensores = torch.tensor(preencher_lote(portugol_codificado, vocab_portugol.stoi["<PAD>"]))
+    # ── 5. Modelo ─────────────────────────────────────────────────────────────
+    enc   = Codificador(len(vocab_pt),       TAM_EMBEDDING, TAM_OCULTO, DROPOUT)
+    dec   = Decodificador(len(vocab_portugol), TAM_EMBEDDING, TAM_OCULTO, DROPOUT)
+    modelo = TupiLogicSeq2Seq(enc, dec)
 
-    epocas = 500 
-    print("Iniciando treinamento da Mente...")
-    for epoca in range(epocas):
-        otimizador.zero_grad()
-        saida = modelo(fonte_tensores, alvo_tensores)
-        saida_dim = saida.shape[-1]
-        
-        saida_achatada = saida[:, 1:].reshape(-1, saida_dim)
-        alvo_achatado = alvo_tensores[:, 1:].reshape(-1)
-        
-        perda = criterio(saida_achatada, alvo_achatado)
-        perda.backward()
-        otimizador.step()
-        
-        if (epoca + 1) % 50 == 0:
-            print(f"Época [{epoca+1}/{epocas}], Erro: {perda.item():.4f}")
+    otimizador = optim.Adam(modelo.parameters(), lr=LR)
+    criterio   = nn.CrossEntropyLoss(ignore_index=vocab_portugol.stoi["<PAD>"])
+    scheduler  = optim.lr_scheduler.ReduceLROnPlateau(
+        otimizador, mode='min', patience=20, factor=0.5)
 
-    print("Salvando o modelo...")
-    os.makedirs("../modelos_salvos", exist_ok=True)
-    torch.save({
-        'modelo_state_dict': modelo.state_dict(),
-        'vocab_pt_stoi': vocab_pt.stoi,
-        'vocab_pt_itos': vocab_pt.itos,
-        'vocab_portugol_stoi': vocab_portugol.stoi,
-        'vocab_portugol_itos': vocab_portugol.itos
-    }, "../modelos_salvos/tupi_modelo.pth")
-    print("Treinamento concluído e salvo em 'modelos_salvos'!")
+    print("[INFO] Iniciando treinamento...")
+    print(f"       Treino: {n_train} | Val: {n_val} | Batch: {BATCH_SIZE} | Epocas: {EPOCAS}\n")
+
+    melhor_val       = float('inf')
+    epocas_sem_melho = 0
+    epocas_iter      = tqdm(range(EPOCAS), desc="Epocas") if USA_TQDM else range(EPOCAS)
+
+    for epoca in epocas_iter:
+        # ── Treino ────────────────────────────────────────────────────────────
+        modelo.train()
+        perda_treino = 0.0
+        for fonte_b, alvo_b in loader_train:
+            otimizador.zero_grad()
+            saida = modelo(fonte_b, alvo_b)
+            perda = criterio(
+                saida[:, 1:].reshape(-1, saida.shape[-1]),
+                alvo_b[:, 1:].reshape(-1)
+            )
+            perda.backward()
+            # E. Gradient Clipping
+            torch.nn.utils.clip_grad_norm_(modelo.parameters(), MAX_NORM)
+            otimizador.step()
+            perda_treino += perda.item()
+        perda_treino /= len(loader_train)
+
+        # ── Validacao ─────────────────────────────────────────────────────────
+        perda_val = avaliar(modelo, loader_val, criterio)
+
+        # F. LR Scheduler
+        scheduler.step(perda_val)
+
+        # Atualiza progresso
+        if USA_TQDM:
+            epocas_iter.set_postfix({"train": f"{perda_treino:.3f}", "val": f"{perda_val:.3f}"})
+        elif (epoca + 1) % LOG_INTERVALO == 0:
+            print(f"Epoca [{epoca+1}/{EPOCAS}] treino={perda_treino:.4f} val={perda_val:.4f}")
+
+        # G. Salvar melhor modelo / Early Stopping
+        if perda_val < melhor_val:
+            melhor_val = perda_val
+            epocas_sem_melho = 0
+            CAMINHO_MODELO_BEST.parent.mkdir(parents=True, exist_ok=True)
+            torch.save({'modelo_state_dict': modelo.state_dict(),
+                        'vocab_pt_stoi': vocab_pt.stoi, 'vocab_pt_itos': vocab_pt.itos,
+                        'vocab_pt_idx': vocab_pt.idx,
+                        'vocab_portugol_stoi': vocab_portugol.stoi,
+                        'vocab_portugol_itos': vocab_portugol.itos,
+                        'vocab_portugol_idx': vocab_portugol.idx,
+                        'melhor_val_loss': melhor_val},
+                       CAMINHO_MODELO_BEST)
+        else:
+            epocas_sem_melho += 1
+            if epocas_sem_melho >= PATIENCE:
+                print(f"\n[Early Stop] Sem melhora por {PATIENCE} epocas. Parando na epoca {epoca+1}.")
+                break
+
+    # ── Salvar checkpoint final ───────────────────────────────────────────────
+    print("\n[INFO] Salvando modelo final...")
+    CAMINHO_MODELO.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({'modelo_state_dict': modelo.state_dict(),
+                'vocab_pt_stoi': vocab_pt.stoi, 'vocab_pt_itos': vocab_pt.itos,
+                'vocab_pt_idx': vocab_pt.idx,
+                'vocab_portugol_stoi': vocab_portugol.stoi,
+                'vocab_portugol_itos': vocab_portugol.itos,
+                'vocab_portugol_idx': vocab_portugol.idx},
+               CAMINHO_MODELO)
+    print(f"[OK] Melhor val loss: {melhor_val:.4f} -> {CAMINHO_MODELO_BEST.name}")
+    print(f"[OK] Modelo final    -> {CAMINHO_MODELO.name}")
+
 
 if __name__ == "__main__":
     treinar()
