@@ -9,6 +9,7 @@ from config import (
     MAX_SAIDA, BEAM_WIDTH
 )
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # ── J. Normalizacao de entrada ────────────────────────────────────────────────
 def normalizar(frase):
@@ -19,7 +20,7 @@ def normalizar(frase):
 
 
 def carregar_modelo(caminho):
-    checkpoint = torch.load(caminho, weights_only=False)
+    checkpoint = torch.load(caminho, map_location=device, weights_only=False)
 
     vocab_pt = Vocabulario()
     vocab_pt.stoi = checkpoint['vocab_pt_stoi']
@@ -33,7 +34,7 @@ def carregar_modelo(caminho):
 
     enc    = Codificador(len(vocab_pt),       TAM_EMBEDDING, TAM_OCULTO, DROPOUT)
     dec    = Decodificador(len(vocab_portugol), TAM_EMBEDDING, TAM_OCULTO, DROPOUT)
-    modelo = TupiLogicSeq2Seq(enc, dec)
+    modelo = TupiLogicSeq2Seq(enc, dec).to(device)
     modelo.load_state_dict(checkpoint['modelo_state_dict'])
     modelo.eval()
 
@@ -46,7 +47,7 @@ def traduzir_com_beam(frase, modelo, vocab_pt, vocab_portugol, beam_width=BEAM_W
     modelo.eval()
     with torch.no_grad():
         tokens      = vocab_pt.codificar(normalizar(frase))
-        tensor_font = torch.tensor(tokens).unsqueeze(0)
+        tensor_font = torch.tensor(tokens).unsqueeze(0).to(device)
 
         saidas_enc, oculto_ini = modelo.codificador(tensor_font)
 
@@ -65,7 +66,7 @@ def traduzir_com_beam(frase, modelo, vocab_pt, vocab_portugol, beam_width=BEAM_W
                 if seq[-1] == EOS:
                     concluidos.append((log_prob, seq))
                     continue
-                entrada  = torch.tensor([seq[-1]])
+                entrada  = torch.tensor([seq[-1]]).to(device)
                 prev, novo_oculto, _ = modelo.decodificador(entrada, oculto, saidas_enc)
                 lp       = torch.log_softmax(prev, dim=1)
                 topk_p, topk_i = lp.topk(beam_width)

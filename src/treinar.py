@@ -21,6 +21,8 @@ except ImportError:
     print("Instale tqdm: pip install tqdm")
 
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 def preencher_lote(seqs, pad_idx):
     max_len = max(len(s) for s in seqs)
     return [s + [pad_idx] * (max_len - len(s)) for s in seqs]
@@ -32,6 +34,7 @@ def avaliar(modelo, loader, criterio):
     total = 0.0
     with torch.no_grad():
         for fonte, alvo in loader:
+            fonte, alvo = fonte.to(device), alvo.to(device)
             saida = modelo(fonte, alvo, forcar_ensino=0.0)
             total += criterio(
                 saida[:, 1:].reshape(-1, saida.shape[-1]),
@@ -71,7 +74,7 @@ def treinar():
     # ── 5. Modelo ─────────────────────────────────────────────────────────────
     enc   = Codificador(len(vocab_pt),       TAM_EMBEDDING, TAM_OCULTO, DROPOUT)
     dec   = Decodificador(len(vocab_portugol), TAM_EMBEDDING, TAM_OCULTO, DROPOUT)
-    modelo = TupiLogicSeq2Seq(enc, dec)
+    modelo = TupiLogicSeq2Seq(enc, dec).to(device)
 
     otimizador = optim.Adam(modelo.parameters(), lr=LR)
     criterio   = nn.CrossEntropyLoss(ignore_index=vocab_portugol.stoi["<PAD>"])
@@ -90,6 +93,7 @@ def treinar():
         modelo.train()
         perda_treino = 0.0
         for fonte_b, alvo_b in loader_train:
+            fonte_b, alvo_b = fonte_b.to(device), alvo_b.to(device)
             otimizador.zero_grad()
             saida = modelo(fonte_b, alvo_b)
             perda = criterio(

@@ -5,139 +5,117 @@ import unicodedata
 class InterpretadorPortugol:
     def __init__(self):
         self.variaveis = {}
+        self.output = []
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
-    def _resolver(self, token):
-        if token.lstrip('-').isdigit():
-            return int(token)
-        if token in self.variaveis:
-            return self.variaveis[token]
-        raise KeyError(token)
+    def transpolar_linha(self, codigo):
+        """Converte uma linha de Portugol para Python."""
+        linha = codigo.strip().lower()
+        if not linha: return ""
 
-    def _calcular(self, v1, op, v2):
-        a, b = self._resolver(v1), self._resolver(v2)
-        if   op == '+': return a + b
-        elif op == '-': return a - b
-        elif op == '*': return a * b
-        elif op == '/':
-            if b == 0: raise ZeroDivisionError
-            r = a / b
-            return int(r) if r == int(r) else round(r, 4)
+        # 0. Easter Egg: Saudações
+        if linha in ["oi", "ola", "ola!", "oi!", "hello"]:
+            return "print('Olá! Eu sou o Tupi-Logic. Em que posso ajudar no seu código?')"
 
-    # ── Execucao ──────────────────────────────────────────────────────────────
-    def executar(self, codigo):
-        codigo = codigo.strip()
-
-        # Declaracao: inteiro x = 10
-        m = re.match(r"inteiro\s+(\w+)\s*=\s*(-?\d+)", codigo)
+        # 1. Declaracao: inteiro x = 10 -> x = 10
+        m = re.match(r"(inteiro|real)\s+(\w+)\s*=\s*(.*)", linha)
         if m:
-            nome, valor = m.group(1), int(m.group(2))
-            self.variaveis[nome] = valor
-            print(f"[Var] '{nome}' = {valor}")
-            return
+            tipo, nome, valor = m.groups()
+            return f"{nome} = {valor}"
 
-        # Escreva string: escreva ( 'texto' )
-        m = re.match(r"escreva\s*\(\s*'(.*?)'\s*\)", codigo)
-        if m:
-            print(f"[Out] {m.group(1)}")
-            return
-
-        # Escreva numero/variavel: escreva ( x )
-        m = re.match(r"escreva\s*\(\s*(\w+)\s*\)", codigo)
+        # 2. Escreva: escreva ( 'oi' ) -> print ( 'oi' )
+        m = re.match(r"escreva\s*\(\s*(.*?)\s*\)", linha)
         if m:
             alvo = m.group(1)
-            try:
-                print(f"[Out] {self._resolver(alvo)}")
-            except KeyError:
-                print(f"[Erro] Variavel '{alvo}' nao existe.")
-            return
+            if "=" in alvo and not ("'" in alvo or '"' in alvo):
+                return f"# Erro: Nao use '=' dentro de escreva. Use 'inteiro {alvo.split('=')[0].strip()} = ...' primeiro."
+            return f"print({alvo})"
 
-        # Leia: leia ( x )
-        m = re.match(r"leia\s*\(\s*(\w+)\s*\)", codigo)
+        # 3. Leia: leia ( x ) -> x = input()
+        m = re.match(r"leia\s*\(\s*(\w+)\s*\)", linha)
         if m:
             nome = m.group(1)
-            try:
-                self.variaveis[nome] = int(input(f"[In] Valor para '{nome}': "))
-                print(f"[Var] '{nome}' = {self.variaveis[nome]}")
-            except ValueError:
-                print("[Erro] Digite um numero inteiro.")
-            return
+            return f"{nome} = float(input()) if '.' in (val := input()) else int(val)"
 
-        # Reatribuicao com expressao: x = y + 5  /  x = x + 1
-        m = re.match(r"(\w+)\s*=\s*(\w+)\s*([+\-*/])\s*(\w+)", codigo)
+        # 4. Condicional: se ( cond ) entao acao [senao acao]
+        m = re.match(r"se\s*\(\s*(.*?)\s*\)\s*entao\s+(.*?)(?:\s+senao\s+(.*))?$", linha)
         if m:
-            dest, v1, op, v2 = m.group(1), m.group(2), m.group(3), m.group(4)
-            try:
-                resultado = self._calcular(v1, op, v2)
-                self.variaveis[dest] = resultado
-                print(f"[Var] '{dest}' = {resultado}")
-            except KeyError as e:
-                print(f"[Erro] Variavel '{e.args[0]}' nao existe.")
-            except ZeroDivisionError:
-                print("[Erro] Divisao por zero.")
-            return
+            cond, acao_entao, acao_senao = m.groups()
+            py_cond = cond.replace("==", "==").replace("!=", "!=").replace("<=", "<=").replace(">=", ">=")
+            if "=" in py_cond and "==" not in py_cond and "!=" not in py_cond and "<=" not in py_cond and ">=" not in py_cond:
+                py_cond = py_cond.replace("=", "==")
+            
+            py_entao = self.transpolar_linha(acao_entao)
+            res = f"if {py_cond}:\n    {py_entao}"
+            if acao_senao:
+                py_senao = self.transpolar_linha(acao_senao)
+                res += f"\nelse:\n    {py_senao}"
+            return res
 
-        # Operacao aritmetica simples: x + y
-        m = re.match(r"(\w+)\s*([+\-*/])\s*(\w+)", codigo)
+        # 5. Loop enquanto: enquanto ( x < 10 ) faca acao
+        m = re.match(r"enquanto\s*\(\s*(.*?)\s*\)\s*faca\s+(.*)", linha)
         if m:
-            v1, op, v2 = m.group(1), m.group(2), m.group(3)
-            ops = {'+': 'soma', '-': 'subtracao', '*': 'multiplicacao', '/': 'divisao'}
-            try:
-                print(f"[Calc] {ops[op]} de {v1} {op} {v2} = {self._calcular(v1, op, v2)}")
-            except KeyError as e:
-                print(f"[Erro] Variavel '{e.args[0]}' nao existe.")
-            except ZeroDivisionError:
-                print("[Erro] Divisao por zero.")
-            return
+            cond, acao = m.groups()
+            py_cond = cond.replace("=", "==") if "=" in cond and "==" not in cond else cond
+            py_acao = self.transpolar_linha(acao)
+            return f"while {py_cond}:\n    {py_acao}\n    if len(getattr(self, 'loop_safety', [])) > 100: break\n    self.loop_safety.append(1)"
 
-        # Loop para: para i de 1 ate N faca
-        m = re.match(r"para i de 1 ate (\d+) faca", codigo)
+        # 6. Loop para: para i de 1 ate N faca
+        m = re.match(r"para\s+(\w+)\s+de\s+(\d+)\s+ate\s+(\d+)\s+faca", linha)
         if m:
-            n = int(m.group(1))
-            print(f"[Loop] Repetindo {n} vezes...")
-            for i in range(1, n + 1):
-                print(f"  -> Execucao {i}")
-            return
+            var, start, end = m.groups()
+            return f"for {var} in range({start}, {end} + 1): print(f'[Exec] Iteracao {{{var}}}')"
 
-        # Loop enquanto: enquanto ( x < 10 ) faca
-        m = re.match(r"enquanto\s*\(\s*(\w+)\s*(>=|<=|!=|==|>|<)\s*(\w+)\s*\)\s*faca", codigo)
-        if m:
-            var, op_str, lim_tok = m.group(1), m.group(2), m.group(3)
-            ops_cond = {
-                '>':  lambda a, b: a > b,  '<':  lambda a, b: a < b,
-                '>=': lambda a, b: a >= b, '<=': lambda a, b: a <= b,
-                '==': lambda a, b: a == b, '!=': lambda a, b: a != b,
-            }
-            try:
-                lim   = self._resolver(lim_tok)
-                val   = self.variaveis.get(var, 0)
-                iters = 0
-                print(f"[Loop] enquanto {var} {op_str} {lim}:")
-                while ops_cond[op_str](val, lim) and iters < 100:
-                    iters += 1
-                    print(f"  -> Iteracao {iters} ({var} = {val})")
-                    val += 1   # incremento padrao para evitar loop infinito
-                if iters == 100:
-                    print("  [Aviso] Limite de 100 iteracoes atingido.")
-            except KeyError as e:
-                print(f"[Erro] Variavel '{e.args[0]}' nao existe.")
-            return
+        # 7. Atribuicao generica: x = y + 1
+        if "=" in linha:
+            return linha
 
-        # Condicionais: se ( x > 10 ) entao
-        ops_cond = {
-            '>=': lambda a, b: a >= b, '<=': lambda a, b: a <= b,
-            '!=': lambda a, b: a != b, '==': lambda a, b: a == b,
-            '>':  lambda a, b: a > b,  '<':  lambda a, b: a < b,
-        }
-        m = re.match(r"se\s*\(\s*(\w+)\s*(>=|<=|!=|==|>|<)\s*(\w+)\s*\)\s*entao", codigo)
-        if m:
-            esq, op_str, dir_ = m.group(1), m.group(2), m.group(3)
-            try:
-                ve, vd = self._resolver(esq), self._resolver(dir_)
-                estado = "VERDADEIRA" if ops_cond[op_str](ve, vd) else "FALSA"
-                print(f"[Cond] {estado}: {esq}={ve} {op_str} {dir_}={vd}")
-            except KeyError as e:
-                print(f"[Erro] Variavel '{e.args[0]}' nao existe.")
-            return
+        # 8. Operacao solta: x + 1 -> print(x + 1)
+        if any(op in linha for op in "+-*/") and "=" not in linha:
+            return f"print({linha})"
 
-        print(f"[?] Nao sei executar: '{codigo}'")
+        return f"# {linha} (Nao reconhecido)"
+
+    def executar(self, codigo):
+        self.output = []
+        self.loop_safety = [] # Evita loops infinitos acidentais
+        py_code = self.transpolar_linha(codigo)
+        
+        # LOG DE DEBUG (Aparece no seu terminal)
+        print(f"\n[DEBUG] Portugol: {codigo}")
+        print(f"[DEBUG] Python: \n{py_code}\n")
+
+        if not py_code or py_code.startswith("#"):
+            self.output.append(f"[?] Nao entendi ou nao sei transpolar: '{codigo}'")
+            return self.output
+
+        import io
+        from contextlib import redirect_stdout
+        
+        f = io.StringIO()
+        try:
+            with redirect_stdout(f):
+                # Executa no contexto das nossas variaveis
+                exec(py_code, {"__builtins__": __builtins__, "self": self}, self.variaveis)
+            
+            self.variaveis.pop('__builtins__', None)
+            self.variaveis.pop('self', None)
+            
+            out = f.getvalue().strip()
+            if out:
+                for line in out.split('\n'):
+                    self.output.append(f"[Out] {line}")
+            else:
+                self.output.append(f"[Exec] OK")
+                
+        except NameError as e:
+            var_name = str(e).split("'")[1] if "'" in str(e) else str(e)
+            self.output.append(f"[Erro] Variável '{var_name}' não existe. Tente criá-la com 'crie a variável {var_name} como 0'.")
+            print(f"[ERRO] NameError: {e}")
+        except SyntaxError as e:
+            self.output.append(f"[Erro] Sintaxe inválida no comando. Verifique parênteses ou aspas.")
+            print(f"[ERRO] SyntaxError: {e}")
+        except Exception as e:
+            print(f"[ERRO] Erro na execucao Python: {e}")
+            self.output.append(f"[Erro] Falha técnica: {e}")
+            
+        return self.output
